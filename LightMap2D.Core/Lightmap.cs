@@ -85,19 +85,94 @@ public class Lightmap
 				}
 			}
 
-			using (var rawImage = mainSurface.Snapshot())
+			using (var directImage = mainSurface.Snapshot())
 			{
 				mainCanvas.Clear(SKColors.Black);
 
-				var blur = 6.0f;
-				using (var blurPaint = new SKPaint())
+				float directBlur = 5.0f;
+				using (var directPaint = new SKPaint())
 				{
-					blurPaint.ImageFilter = SKImageFilter.CreateBlur(blur, blur, SKShaderTileMode.Clamp);
-					mainCanvas.DrawImage(rawImage, 0, 0, blurPaint);
+					directPaint.ImageFilter = SKImageFilter.CreateBlur(directBlur, directBlur, SKShaderTileMode.Clamp);
+					mainCanvas.DrawImage(directImage, 0, 0, directPaint);
+				}
+
+				const float downscale = 0.25f;
+				int smallSize = (int)(data.OutputSize * downscale);
+
+				var smallInfo = new SKImageInfo(smallSize, smallSize,
+												SKColorType.Rgba8888, SKAlphaType.Premul);
+
+				using (var smallSurface = SKSurface.Create(smallInfo))
+				{
+					var smallCanvas = smallSurface.Canvas;
+
+					smallCanvas.DrawImage(directImage,
+						new SKRect(0, 0, data.OutputSize, data.OutputSize),
+						new SKRect(0, 0, smallSize, smallSize));
+
+					float giBlur = 28.0f;
+					using (var blurPaint = new SKPaint())
+					{
+						blurPaint.ImageFilter = SKImageFilter.CreateBlur(giBlur, giBlur, SKShaderTileMode.Clamp);
+						smallCanvas.DrawImage(smallSurface.Snapshot(), 0, 0, blurPaint);
+					}
+
+					using (var upscaledGi = smallSurface.Snapshot())
+					using (var giPaint = new SKPaint())
+					{
+						giPaint.BlendMode = SKBlendMode.Screen;
+						giPaint.Color = new SKColor(255, 255, 255, 120);
+
+						mainCanvas.DrawImage(upscaledGi,
+							new SKRect(0, 0, smallSize, smallSize),
+							new SKRect(0, 0, data.OutputSize, data.OutputSize),
+							giPaint);
+					}
 				}
 			}
 
-			// Save
+			using (var litImage = mainSurface.Snapshot())
+			{
+				mainCanvas.Clear(SKColors.Black);
+
+				mainCanvas.DrawImage(litImage, 0, 0);
+
+				using (var shadowPaint = new SKPaint())
+				{
+					shadowPaint.Color = SKColors.Black;
+					shadowPaint.IsAntialias = true;
+					shadowPaint.Style = SKPaintStyle.Fill;
+
+					foreach (var shadow in data.Shadows)
+					{
+						List<Vector2> corners = Utils.GenerateRotatedRectangle(
+							shadow.Position, shadow.Size, shadow.Rotation);
+
+						using (var path = new SKPath())
+						{
+							path.MoveTo(corners[0].X, corners[0].Y);
+							for (int i = 1; i < corners.Count; i++)
+								path.LineTo(corners[i].X, corners[i].Y);
+							path.Close();
+
+							mainCanvas.DrawPath(path, shadowPaint);
+						}
+					}
+				}
+			}
+
+			float finalSoftness = 2.0f;
+			if (finalSoftness > 0)
+			{
+				using (var raw = mainSurface.Snapshot())
+				using (var blurPaint = new SKPaint())
+				{
+					blurPaint.ImageFilter = SKImageFilter.CreateBlur(finalSoftness, finalSoftness, SKShaderTileMode.Clamp);
+					mainCanvas.Clear(SKColors.Black);
+					mainCanvas.DrawImage(raw, 0, 0, blurPaint);
+				}
+			}
+
 			using (var image = mainSurface.Snapshot())
 			using (var imgData = image.Encode(SKEncodedImageFormat.Png, 100))
 			using (var stream = File.OpenWrite("test.png"))
@@ -160,7 +235,6 @@ public class Lightmap
 		Vector2 farB = light + Vector2.Normalize(tangentB - light) * farDist;
 		Vector2 farA = light + Vector2.Normalize(tangentA - light) * farDist;
 
-		// Build path
 		var path = new SKPath();
 		path.MoveTo(backSequence[0].X, backSequence[0].Y);
 		for (int i = 1; i < backSequence.Count; i++)
