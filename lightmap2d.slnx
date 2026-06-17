@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="LightMap2D.Cli/LightMap2D.Cli.csproj" />
+  <Project Path="LightMap2D.Core/LightMap2D.Core.csproj" />
+</Solution>
