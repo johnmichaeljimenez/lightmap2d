@@ -8,6 +8,7 @@ var data = new LightmapData()
 {
 	AmbientColor = SKColors.Black,
 	MapSize = 12,
+	GlobalIlluminationOnly = true,
 	OutputSize = 512,
 	Lights = new(){
 		new(){

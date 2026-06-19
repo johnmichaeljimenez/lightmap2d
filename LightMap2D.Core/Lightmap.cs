@@ -7,7 +7,6 @@ public class Lightmap
 {
 	public Lightmap()
 	{
-
 	}
 
 	public void Generate(LightmapData data)
@@ -89,44 +88,68 @@ public class Lightmap
 			{
 				mainCanvas.Clear(SKColors.Black);
 
-				float directBlur = 5.0f;
-				using (var directPaint = new SKPaint())
+				if (!data.GlobalIlluminationOnly)
 				{
-					directPaint.ImageFilter = SKImageFilter.CreateBlur(directBlur, directBlur, SKShaderTileMode.Clamp);
-					mainCanvas.DrawImage(directImage, 0, 0, directPaint);
+					float directBlur = 5.0f;
+					using (var directPaint = new SKPaint())
+					{
+						directPaint.ImageFilter = SKImageFilter.CreateBlur(directBlur, directBlur, SKShaderTileMode.Clamp);
+						mainCanvas.DrawImage(directImage, 0, 0, directPaint);
+					}
 				}
 
-				const float downscale = 0.25f;
-				int smallSize = (int)(data.OutputSize * downscale);
+				SKImage currentGiSource = directImage;
 
-				var smallInfo = new SKImageInfo(smallSize, smallSize,
-												SKColorType.Rgba8888, SKAlphaType.Premul);
-
-				using (var smallSurface = SKSurface.Create(smallInfo))
+				for (int pass = 0; pass < data.GiPasses; pass++)
 				{
-					var smallCanvas = smallSurface.Canvas;
+					float passDownscale = data.GiDownscale;
+					float passBlur = data.GiBlur;
+					float passIntensity = data.GiIntensity;
 
-					smallCanvas.DrawImage(directImage,
-						new SKRect(0, 0, data.OutputSize, data.OutputSize),
-						new SKRect(0, 0, smallSize, smallSize));
-
-					float giBlur = 28.0f;
-					using (var blurPaint = new SKPaint())
+					if (pass > 0)
 					{
-						blurPaint.ImageFilter = SKImageFilter.CreateBlur(giBlur, giBlur, SKShaderTileMode.Clamp);
-						smallCanvas.DrawImage(smallSurface.Snapshot(), 0, 0, blurPaint);
+						passDownscale = MathF.Max(0.4f, data.GiDownscale * 1.8f);
+						passBlur = MathF.Max(6.0f, data.GiBlur * 0.35f);
+						passIntensity = data.GiIntensity * 0.45f;
 					}
 
-					using (var upscaledGi = smallSurface.Snapshot())
-					using (var giPaint = new SKPaint())
-					{
-						giPaint.BlendMode = SKBlendMode.Screen;
-						giPaint.Color = new SKColor(255, 255, 255, 120);
+					int smallSize = (int)(data.OutputSize * passDownscale);
+					if (smallSize < 8) smallSize = 8;
 
-						mainCanvas.DrawImage(upscaledGi,
-							new SKRect(0, 0, smallSize, smallSize),
+					var smallInfo = new SKImageInfo(smallSize, smallSize,
+													SKColorType.Rgba8888, SKAlphaType.Premul);
+
+					using (var smallSurface = SKSurface.Create(smallInfo))
+					{
+						var smallCanvas = smallSurface.Canvas;
+
+						smallCanvas.DrawImage(currentGiSource,
 							new SKRect(0, 0, data.OutputSize, data.OutputSize),
-							giPaint);
+							new SKRect(0, 0, smallSize, smallSize));
+
+						using (var blurPaint = new SKPaint())
+						{
+							blurPaint.ImageFilter = SKImageFilter.CreateBlur(passBlur, passBlur, SKShaderTileMode.Clamp);
+							smallCanvas.DrawImage(smallSurface.Snapshot(), 0, 0, blurPaint);
+						}
+
+						using (var upscaledGi = smallSurface.Snapshot())
+						using (var giPaint = new SKPaint())
+						{
+							giPaint.BlendMode = SKBlendMode.Screen;
+
+							byte alpha = (byte)Math.Clamp(passIntensity * 255f, 0f, 255f);
+							giPaint.Color = new SKColor(
+								data.GiTint.Red,
+								data.GiTint.Green,
+								data.GiTint.Blue,
+								alpha);
+
+							mainCanvas.DrawImage(upscaledGi,
+								new SKRect(0, 0, smallSize, smallSize),
+								new SKRect(0, 0, data.OutputSize, data.OutputSize),
+								giPaint);
+						}
 					}
 				}
 			}
